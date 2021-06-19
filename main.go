@@ -11,6 +11,7 @@ package main
 //no olvidar npm install
 //npm run dev para correr front
 //estilos de front investigados: https://bootswatch.com/cyborg/
+//dataset: https://cloud.minsa.gob.pe/s/ZgXoXqK2KLjRLxD/download
 
 import (
 	"encoding/csv"
@@ -19,7 +20,6 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,13 +29,13 @@ import (
 	"github.com/gorilla/mux"
 )
 
-type barrier struct { //posible forma de aplicar concurrencia
-	count  int
-	n_iter int
-	mu     sync.Mutex
-	signal chan int
-	wait   chan int
-}
+// type barrier struct { //posible forma de aplicar concurrencia
+// 	count  int
+// 	n_iter int
+// 	mu     sync.Mutex
+// 	signal chan int
+// 	wait   chan int
+// }
 
 //JSON_Input es el punto a recibir
 type JSON_Input struct {
@@ -46,9 +46,9 @@ type JSON_Input struct {
 
 //salida JSON
 type JSON_Output struct {
-	Data    []Data     `json:"data"`
-	Caminos [][]Labels `json:"caminos"`
-	Clases  []string   `json:"clases"`
+	Data    []Data      `json:"data"`
+	Caminos [][]Caminos `json:"caminos"`
+	Clases  []string    `json:"clases"`
 }
 
 var retorno JSON_Output
@@ -60,14 +60,14 @@ type Punto struct {
 	Clase string  `json:"clase"` //clase
 }
 
-type Labels struct {
+type Caminos struct {
 	Nombre string `json:"nombre"`
 	Conteo int    `json:"conteo"`
 }
 
 //impresión de los resultados
 func (p Punto) String() string {
-	return fmt.Sprintf("X = %f, Y = %f es: Fabricante = %s\n", p.X, p.Y, p.Clase)
+	return fmt.Sprintf("Edad = %f, Grupo de Riesgo = %f es el Fabricante = %s\n", p.X, p.Y, p.Clase)
 }
 
 type Data struct {
@@ -85,16 +85,16 @@ func (d Data) String() string {
 	)
 }
 
-//Se requiere procesar facilmente información para obtener la longitud, para intercambiar rápidamente datos y para facilitar condicionales
-type Block []Data
+//Se requiere procesar facilmente la data información para obtener la longitud, para intercambiar rápidamente datos y para facilitar condicionales
+type Procesar []Data
 
-//Creación rápida de funciones
-func (b Block) Len() int           { return len(b) }
-func (b Block) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
-func (b Block) Less(i, j int) bool { return b[i].Distancia < b[j].Distancia }
+//Se crean funciones
+func (p Procesar) Len() int           { return len(p) }
+func (p Procesar) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
+func (p Procesar) Less(i, j int) bool { return p[i].Distancia < p[j].Distancia }
 
 //Función para distancia euclideana
-func DEuclidiana(A Punto, X Punto) (distancia float64, err error) {
+func DistEuclideana(A Punto, X Punto) (distancia float64, err error) {
 	distancia = math.Sqrt(math.Pow((X.X-A.X), 2) + math.Pow((X.Y-A.Y), 2))
 	if distancia < 0 {
 		return 0, fmt.Errorf("distancia euclideana negativa, datos inválidos")
@@ -103,14 +103,14 @@ func DEuclidiana(A Punto, X Punto) (distancia float64, err error) {
 	return distancia, nil
 }
 
-func readCSVFromUrl(url string) ([][]string, error) {
-	resp, err := http.Get(url)
+func LeerCsvURL(url string) ([][]string, error) {
+	res, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
 
-	defer resp.Body.Close()
-	reader := csv.NewReader(resp.Body)
+	defer res.Body.Close()
+	reader := csv.NewReader(res.Body)
 	data, err := reader.ReadAll()
 	if err != nil {
 		return nil, err
@@ -119,14 +119,10 @@ func readCSVFromUrl(url string) ([][]string, error) {
 	return data, nil
 }
 
-func LoadData(csvPath string) (data []Data, err error) {
-	fd, err := os.Open(csvPath)
-	if err != nil {
-		return nil, err
-	}
-	reader := csv.NewReader(fd)
-	datoscsv, _ := reader.ReadAll()
-	fmt.Println("Carga de datos\n")
+func CargarDatos() (data []Data, err error) {
+
+	datoscsv, _ := LeerCsvURL("https://raw.githubusercontent.com/JumpNShootMan/ConcurrentRestAPI/main/vacunas_covid.csv")
+
 	filas := len(datoscsv)
 	columnas := len(datoscsv[0])
 
@@ -163,82 +159,69 @@ func LoadData(csvPath string) (data []Data, err error) {
 
 		data[i].Distrito = datoscsv[i+1][4] //string
 
-		//agregar por cantidad de columnas
 		data[i].Grupo_Riesgo = datoscsv[i+1][5] //string
 
 	}
 	return data, nil
 }
 
-// func ValidError(err error) {
-// 	if err != nil {
-// 		fmt.Printf("[!] %s\n", err.Error())
-// 		os.Exit(1)
-// 	}
-// }
-
-func Knn(data []Data, k byte, X *Punto) (err error) {
+func knn(data []Data, k byte, X *Punto) (err error) {
 	n := len(data)
 	// calcular distancias
 	for i := 0; i < n; i++ {
-		if data[i].Distancia, err = DEuclidiana(data[i].Punto, *X); err != nil {
+		if data[i].Distancia, err = DistEuclideana(data[i].Punto, *X); err != nil {
 			return err
 		}
 	}
 
-	var blk Block = data
+	var proc Procesar = data
 	// ordenar ascendiendo
-	sort.Sort(blk)
-	var save []Labels
-	// pass
+	sort.Sort(proc)
+	var save []Caminos
 	if int(k) > n {
 		return nil
 	}
 	for i := byte(0); i < k; i++ {
-		save = IncrementoLabels(data[i].Punto.Clase, save)
+		save = GuardarClasesCercanas(data[i].Punto.Clase, save)
 	}
-
-	fmt.Printf("[*] Using k as %d\n", k)
-	fmt.Println()
-	fmt.Printf("[*] %+v\n", save)
-	fmt.Println()
 
 	retorno.Caminos = append(retorno.Caminos, save)
 
 	max := 0
-	var maxLabel string
+	var maxCamino string
 	m := len(save)
 	for i := 0; i < m; i++ {
 		if max < save[i].Conteo {
 			max = save[i].Conteo
-			maxLabel = save[i].Nombre
+			maxCamino = save[i].Nombre
 		}
 	}
 
-	X.Clase = maxLabel
-	retorno.Clases = append(retorno.Clases, maxLabel)
+	X.Clase = maxCamino
+	retorno.Clases = append(retorno.Clases, maxCamino)
 	return nil
 }
 
-func IncrementoLabels(label string, labels []Labels) []Labels {
-	if labels == nil {
-		labels = append(labels, Labels{
-			Nombre: label,
+func GuardarClasesCercanas(camino string, caminos []Caminos) []Caminos {
+
+	if caminos == nil {
+		caminos = append(caminos, Caminos{
+			Nombre: camino,
 			Conteo: 1,
 		})
-		return labels
+		return caminos
 	}
 
-	conteo := len(labels)
+	conteo := len(caminos)
 	for i := 0; i < conteo; i++ {
-		if strings.Compare(labels[i].Nombre, label) == 0 {
-			labels[i].Conteo++
-			return labels
+		if strings.Compare(caminos[i].Nombre, camino) == 0 {
+			caminos[i].Conteo++
+			return caminos
 		}
 	}
 
-	return append(labels, Labels{
-		Nombre: label,
+	return append(caminos, Caminos{
+		Nombre: camino,
 		Conteo: 1,
 	})
 }
@@ -246,7 +229,7 @@ func IncrementoLabels(label string, labels []Labels) []Labels {
 func API_KNN(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Counter-Type", "application/json")
 
-	data, _ := LoadData("vacunas_covid.csv")
+	data, _ := CargarDatos()
 	// ValidError(err)
 
 	// Queremos leer desde un JSON
@@ -259,7 +242,7 @@ func API_KNN(w http.ResponseWriter, r *http.Request) {
 
 	n := len(k)
 	for i := 0; i < n; i++ {
-		_ = Knn(data, k[i], &X)
+		_ = knn(data, k[i], &X)
 		if i == 0 {
 			fmt.Println(data)
 			retorno.Data = data
