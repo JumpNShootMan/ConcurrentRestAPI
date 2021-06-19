@@ -29,7 +29,8 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// type barrier struct { //posible forma de aplicar concurrencia
+//posible forma de aplicar concurrencia
+// type barrier struct {
 // 	count  int
 // 	n_iter int
 // 	mu     sync.Mutex
@@ -46,9 +47,10 @@ type JSON_Input struct {
 
 //salida JSON
 type JSON_Output struct {
-	Data    []Data      `json:"data"`
-	Caminos [][]Caminos `json:"caminos"`
-	Clases  []string    `json:"clases"`
+	Data []Data `json:"data"`
+	// Se utilizaron estas variables hasta que se encontró un error con Svelte que no permitía la creación de dos tablas
+	//Caminos [][]Caminos `json:"caminos"`
+	// Clases  []string    `json:"clases"`
 }
 
 var retorno JSON_Output
@@ -185,7 +187,7 @@ func knn(data []Data, k byte, X *Punto) (err error) {
 		save = GuardarClasesCercanas(data[i].Punto.Clase, save)
 	}
 
-	retorno.Caminos = append(retorno.Caminos, save)
+	// retorno.Caminos = append(retorno.Caminos, save)
 
 	max := 0
 	var maxCamino string
@@ -198,7 +200,7 @@ func knn(data []Data, k byte, X *Punto) (err error) {
 	}
 
 	X.Clase = maxCamino
-	retorno.Clases = append(retorno.Clases, maxCamino)
+	// retorno.Clases = append(retorno.Clases, maxCamino)
 	return nil
 }
 
